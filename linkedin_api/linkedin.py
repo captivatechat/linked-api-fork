@@ -380,33 +380,33 @@ class Linkedin(object):
         if connection_of:
             filters.append(f"(key:connectionOf,value:List({connection_of}))")
         if network_depths:
-            stringify = " | ".join(network_depths)
+            stringify = " , ".join(network_depths)
             filters.append(f"(key:network,value:List({stringify}))")
         elif network_depth:
             filters.append(f"(key:network,value:List({network_depth}))")
         if regions:
-            stringify = " | ".join(regions)
+            stringify = " , ".join(regions)
             filters.append(f"(key:geoUrn,value:List({stringify}))")
         if industries:
-            stringify = " | ".join(industries)
+            stringify = " , ".join(industries)
             filters.append(f"(key:industry,value:List({stringify}))")
         if current_company:
-            stringify = " | ".join(current_company)
+            stringify = " , ".join(current_company)
             filters.append(f"(key:currentCompany,value:List({stringify}))")
         if past_companies:
-            stringify = " | ".join(past_companies)
+            stringify = " , ".join(past_companies)
             filters.append(f"(key:pastCompany,value:List({stringify}))")
         if profile_languages:
-            stringify = " | ".join(profile_languages)
+            stringify = " , ".join(profile_languages)
             filters.append(f"(key:profileLanguage,value:List({stringify}))")
         if nonprofit_interests:
-            stringify = " | ".join(nonprofit_interests)
+            stringify = " , ".join(nonprofit_interests)
             filters.append(f"(key:nonprofitInterest,value:List({stringify}))")
         if schools:
-            stringify = " | ".join(schools)
+            stringify = " , ".join(schools)
             filters.append(f"(key:schools,value:List({stringify}))")
         if service_categories:
-            stringify = " | ".join(service_categories)
+            stringify = " , ".join(service_categories)
             filters.append(f"(key:serviceCategory,value:List({stringify}))")
         # `Keywords` filter
         keyword_title = keyword_title if keyword_title else title
