@@ -1436,25 +1436,29 @@ class Linkedin(object):
             # We extract the last part of the string
             profile_urn = profile_urn_string.split(":")[-1]
 
-        trackingId = generate_trackingId()
         payload = {
-            "trackingId": trackingId,
-            "message": message,
-            "invitations": [],
-            "excludeInvitations": [],
             "invitee": {
-                "com.linkedin.voyager.growth.invitation.InviteeProfile": {
-                    "profileId": profile_urn
-                }
+                "inviteeUnion": {"memberProfile": f"urn:li:fsd_profile:{profile_urn}"}
             },
+            "customMessage": message,
         }
+        params = {
+            "action": "verifyQuotaAndCreateV2",
+            "decorationId": "com.linkedin.voyager.dash.deco.relationships.InvitationCreationResultWithInvitee-2",
+        }
+
         res = self._post(
-            "/growth/normInvitations",
+            "/voyagerRelationshipsDashMemberRelationships",
             data=json.dumps(payload),
             headers={"accept": "application/vnd.linkedin.normalized+json+2.1"},
+            params=params,
         )
-
-        return res.status_code != 201
+        # Check for connection_response.status_code == 400 and connection_response.json().get('data', {}).get('code') == 'CANT_RESEND_YET'
+        # If above condition is True then request has been already sent, (might be pending or already connected)
+        if res.ok:
+            return False
+        else:
+            return True
 
     def remove_connection(self, public_profile_id: str):
         """Remove a given profile as a connection.
@@ -1781,3 +1785,33 @@ class Linkedin(object):
             return {}
 
         return data
+
+    def get_company_urn_id(self, company_name: str) -> int:
+        """Fetch the URN ID of a company based on the company name.
+
+        :param company_name: Name of the company to search for
+        :type company_name: str
+        :return: URN ID of the company if found
+        :rtype: int
+        """
+        # Define query parameters for the API request
+        params = {
+            "variables": f"(keywords:{company_name},query:(),type:COMPANY)",
+            "queryId": "voyagerSearchDashReusableTypeahead.54529a68d290553c6f24e28ab3448654"
+        }
+
+        # Send request to the LinkedIn GraphQL API
+        res = self._fetch("/voyager/api/graphql", params=params)
+
+        # Parse JSON response and extract URN ID
+        data = res.json()
+        if "data" in data and "data" in data["data"] and "searchDashReusableTypeaheadByType" in data["data"]["data"]:
+            elements = data["data"]["data"]["searchDashReusableTypeaheadByType"].get("elements", [])
+            if len(elements) > 0:
+                return elements[0]  # Return the first element
+        else:
+            return None
+        
+        # Return None if no company found
+        return None
+
