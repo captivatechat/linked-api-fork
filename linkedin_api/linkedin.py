@@ -1794,19 +1794,18 @@ class Linkedin(object):
         :return: URN ID of the company if found
         :rtype: int
         """
+
         # Define query parameters for the API request
-        params = {
-            "variables": f"(keywords:{company_name},query:(),type:COMPANY)",
-            "queryId": "voyagerSearchDashReusableTypeahead.54529a68d290553c6f24e28ab3448654"
-        }
-
-        # Send request to the LinkedIn GraphQL API
-        res = self._fetch("/voyager/api/graphql", params=params)
-
-        # Parse JSON response and extract URN ID
+        variables = f"(keywords:{company_name},query:(),type:COMPANY)"
+        query_id = "voyagerSearchDashReusableTypeahead.54529a68d290553c6f24e28ab3448654"
+        
+        # Make the request
+        res = self._fetch(f"/graphql?variables={variables}&queryId={query_id}")
+        
         data = res.json()
-        if "data" in data and "data" in data["data"] and "searchDashReusableTypeaheadByType" in data["data"]["data"]:
-            elements = data["data"]["data"]["searchDashReusableTypeaheadByType"].get("elements", [])
+
+        if "data" in data and "searchDashReusableTypeaheadByType" in data["data"]:
+            elements = data["data"]["searchDashReusableTypeaheadByType"].get("elements", [])
             if len(elements) > 0:
                 return elements[0]  # Return the first element
         else:
