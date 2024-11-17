@@ -1814,3 +1814,59 @@ class Linkedin(object):
         # Return None if no company found
         return None
 
+    def send_message_v2(
+        self,
+        message_body: str,
+        conversation_urn_id: Optional[str] = None,
+        recipients: Optional[List[str]] = None,
+        user_profile_urn: str = None
+    ):
+        """Send a message to a given conversation or recipient.
+
+        :param message_body: Message text to send
+        :type message_body: str
+        :param conversation_urn_id: LinkedIn URN ID for a conversation
+        :type conversation_urn_id: str, optional
+        :param recipients: List of profile urn id's
+        :type recipients: list, optional
+
+        :return: Error state. If True, an error occured.
+        :rtype: boolean
+        """
+        params = { "action": "createMessage" }
+
+        if not (conversation_urn_id or recipients or user_profile_urn):
+            self.logger.debug("Must provide [conversation_urn_id] or [recipients].")
+            return True
+
+        message_event = {
+            "message": {
+                "body": {
+                    "attributes": [],
+                    "text": message_body,
+                },
+                "originToken": str(uuid.uuid4()),
+            },
+            "mailboxUrn": user_profile_urn,
+            "trackingId": generate_trackingId_as_charString(),
+            "dedupeByClientGeneratedToken": False,
+            "messageDraftUrn": f"urn:li:msg_messageDraft:({user_profile_urn},{str(uuid.uuid4())})"
+        }
+
+        if recipients and not conversation_urn_id:
+            message_event["hostRecipientUrns"] = recipients
+            res = self._post(
+                f"/voyagerMessagingDashMessengerMessages",
+                params=params,
+                data=json.dumps(message_event),
+            )
+        else:
+            message_event["conversationUrn"] = f"urn:li:msg_conversation:({user_profile_urn},{conversation_urn_id})"
+            res = self._post(
+                f"/voyagerMessagingDashMessengerMessages",
+                params=params,
+                data=json.dumps(message_event),
+            )
+
+        return res.status_code > 201
+
