@@ -102,6 +102,12 @@ class Linkedin(object):
 
         url = f"{self.client.API_BASE_URL if not base_request else self.client.LINKEDIN_BASE_URL}{uri}"
         return self.client.session.post(url, **kwargs)
+    
+    def is_authenticated(self, res=None):
+        if res.status_code > 201:
+            message = "Unauthorized" if res.status_code in [400, 401] else json.loads(res.content)
+            raise Exception(json.dumps({"status_code": res.status_code, "detail": message }))
+        return True
 
     def get_profile_posts(
         self,
@@ -249,6 +255,9 @@ class Linkedin(object):
                 f"includeFiltersInResponse:false))&queryId=voyagerSearchDashClusters"
                 f".b0928897b71bd00a5a7291755dcd64f0"
             )
+
+            self.is_authenticated(res=res)
+            
             data = res.json()
 
             data_clusters = data.get("data", {}).get("searchDashClustersByAll", [])
@@ -741,6 +750,8 @@ class Linkedin(object):
         # NOTE this still works for now, but will probably eventually have to be converted to
         # https://www.linkedin.com/voyager/api/identity/profiles/ACoAAAKT9JQBsH7LwKaE9Myay9WcX8OVGuDq9Uw
         res = self._fetch(f"/identity/profiles/{public_id or urn_id}/profileView")
+
+        self.is_authenticated(res=res)
 
         data = res.json()
         if data and "status" in data and data["status"] != 200:
@@ -1341,6 +1352,7 @@ class Linkedin(object):
         me_profile = self.client.metadata.get("me", {})
         if not self.client.metadata.get("me") or not use_cache:
             res = self._fetch(f"/me")
+            self.is_authenticated(res=res)
             me_profile = res.json()
             # cache profile
             self.client.metadata["me"] = me_profile
@@ -1853,6 +1865,8 @@ class Linkedin(object):
             "messageDraftUrn": f"urn:li:msg_messageDraft:({user_profile_urn},{str(uuid.uuid4())})"
         }
 
+        res = None
+
         if recipients and not conversation_urn_id:
             message_event["hostRecipientUrns"] = recipients
             res = self._post(
@@ -1868,5 +1882,6 @@ class Linkedin(object):
                 data=json.dumps(message_event),
             )
 
+        self.is_authenticated(res=res)
         return res.status_code > 201
 
