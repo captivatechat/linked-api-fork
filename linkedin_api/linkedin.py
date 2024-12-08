@@ -1885,3 +1885,55 @@ class Linkedin(object):
         self.is_authenticated(res=res)
         return res.status_code > 201
 
+    def check_member_connection(
+        self,
+        public_id: str,
+    ):
+        """Check connection with a LinkedIn profile. Returns "connected", "not-connected", or "pending-invitation".
+
+        :param public_id: Public profile ID of LinkedIn profile
+
+        :return: Connection state. Returns "connected", "not-connected", or "pending-invitation".
+        :rtype: str
+        """
+
+        if not public_id:
+            return "not-connected"
+
+        res = None
+        res = self._fetch(
+            f"/graphql?variables=(vanityName:{public_id})&queryId=voyagerIdentityDashProfiles.545b6b61da02e06975ba277b722ad219"
+        )
+
+        self.is_authenticated(res=res)
+
+        resContent = res.json()
+        
+        memberIdentity = resContent.get("data", {}).get("identityDashProfilesByMemberIdentity", {})
+        if not memberIdentity:
+            return "not-connected"
+        
+        memberProfile = memberIdentity.get("elements", [{}])[0]
+        memberRelationship = memberProfile.get("memberRelationship")
+
+        print("MEM REL", memberRelationship.get("memberRelationship", {}))
+
+        if not memberRelationship:
+            return "not-connected"
+        
+        is_connected = memberRelationship.get("memberRelationship", {}).get("connection") is not None
+        
+        if is_connected:
+            return "connected"
+        
+        no_connection = memberRelationship.get("memberRelationship", {}).get("noConnection")
+
+        if not no_connection:
+            return "connected"
+        
+        pending_invitation = no_connection.get("invitation", {}).get("invitation")
+
+        if pending_invitation is None:
+            return "not-connected"
+        
+        return "pending-invitation"
