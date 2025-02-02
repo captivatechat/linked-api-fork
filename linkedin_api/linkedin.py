@@ -1831,7 +1831,8 @@ class Linkedin(object):
         message_body: str,
         conversation_urn_id: Optional[str] = None,
         recipients: Optional[List[str]] = None,
-        user_profile_urn: str = None
+        user_profile_urn: str = None,
+        file_properties: Optional[dict] = None
     ):
         """Send a message to a given conversation or recipient.
 
@@ -1841,9 +1842,11 @@ class Linkedin(object):
         :type conversation_urn_id: str, optional
         :param recipients: List of profile urn id's
         :type recipients: list, optional
+        :param file_properties: Dictionary containing file attachment properties
+        :type file_properties: dict, optional
 
-        :return: Error state. If True, an error occured.
-        :rtype: boolean
+        :return: Error state. If True, an error occurred.
+        :rtype: bool
         """
         params = { "action": "createMessage" }
 
@@ -1864,6 +1867,11 @@ class Linkedin(object):
             "dedupeByClientGeneratedToken": False,
             "messageDraftUrn": f"urn:li:msg_messageDraft:({user_profile_urn},{str(uuid.uuid4())})"
         }
+
+        if file_properties:
+            message_event["renderContentUnions"] = [
+                {"file": file_properties}
+            ]
 
         res = None
 
