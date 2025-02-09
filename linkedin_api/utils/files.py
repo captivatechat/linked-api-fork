@@ -1,4 +1,4 @@
-import subprocess
+import mimetypes
 import requests
 import os
 import uuid
@@ -49,7 +49,10 @@ def get_file_properties(assetUrn: str):
 
         file_path = "---".join([parts[1], parts[2]])
 
-        mime_type = subprocess.run(["file", "--mime-type", "-b", os.path.join("files", file_path)], capture_output=True, text=True).stdout.strip()
+        mime_type, _ = mimetypes.guess_type(file_path)
+        if not mime_type:
+            mime_type = "application/octet-stream"  # Default MIME type if unknown
+
         # Get the file size
         file_size = os.path.getsize(os.path.join("files", file_path))
         return {
