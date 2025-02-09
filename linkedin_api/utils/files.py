@@ -52,10 +52,10 @@ def get_file_properties(assetUrn: str):
         mime_type, _ = mimetypes.guess_type(file_path)
         if not mime_type:
             mime_type = "application/octet-stream"  # Default MIME type if unknown
-        print("mime type", mime_type)
+        print("mime type 1", mime_type)
         os.makedirs("files", exist_ok=True)
         # Get the file size
-        file_size = os.path.getsize(os.path.join("files", file_path))
+        file_size = os.path.getsize(file_path)
         print({
             "assetUrn": assetUrnValue,
             "byteSize": file_size,

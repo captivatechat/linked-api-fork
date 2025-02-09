@@ -2019,7 +2019,7 @@ class Linkedin(object):
                 return "Asset URN is missing"
             
             file_metadata = get_file_properties(assetUrn)
-            print(file_metadata)
+            print("METADATA 1", file_metadata)
             return file_metadata
         except Exception as e:
             print(e)
