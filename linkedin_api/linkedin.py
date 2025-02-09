@@ -107,11 +107,13 @@ class Linkedin(object):
         url = f"{self.client.API_BASE_URL if not base_request else self.client.LINKEDIN_BASE_URL}{uri}"
         return self.client.session.post(url, **kwargs)
     
-    def _put(self, uri: str, evade=default_evade, base_request=False, **kwargs):
+    def _put(self, uri: Optional[str], fullUrl: Optional[str], evade=default_evade, base_request=False, **kwargs):
         """PUT request to Linkedin API"""
         evade()
-
-        url = f"{self.client.API_BASE_URL if not base_request else self.client.LINKEDIN_BASE_URL}{uri}"
+        if fullUrl:
+            url = fullUrl
+        else:
+            url = f"{self.client.API_BASE_URL if not base_request else self.client.LINKEDIN_BASE_URL}{uri}"
         return self.client.session.put(url, **kwargs)
     
     def is_authenticated(self, res=None):
@@ -2040,7 +2042,7 @@ class Linkedin(object):
             res = None
 
             file = download_file_from_url(url)
-
+            print("FILES!", file)
             file_metadata = {
                 "mediaUploadType": "MESSAGING_FILE_ATTACHMENT",
                 "fileSize": file["byteSize"],
@@ -2051,16 +2053,15 @@ class Linkedin(object):
                 f"/voyagerVideoDashMediaUploadMetadata?action=upload",
                 json=file_metadata
             )
-
             resContent = res.json()
-
             assetUrn = resContent.get("value", {}).get("urn", "")
             singleUploadUrl = resContent.get("value", {}).get("singleUploadUrl", "")
-
-            with open(os.path.join("files", file["fileId"]), "rb") as file:
+            filepath = os.path.join("files", file["fileId"])
+            with open(filepath, "rb") as rawFile:
                 self._put(
-                    singleUploadUrl,
-                    data=file
+                    uri=None,
+                    fullUrl=singleUploadUrl,
+                    data=rawFile,
                 )
             
             updated_asset_urn = f"{assetUrn}---{file['fileId']}"

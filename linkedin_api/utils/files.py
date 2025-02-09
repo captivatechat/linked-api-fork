@@ -53,10 +53,10 @@ def get_file_properties(assetUrn: str):
         # Get the file size
         file_size = os.path.getsize(os.path.join("files", file_path))
         return {
+            "assetUrn": assetUrnValue,
             "byteSize": file_size,
             "mediaType": mime_type,
             "name": filename,
-            "assetUrn": assetUrnValue,
             "url": f"blob:https://www.linkedin.com/{id}"
         }
     else:
