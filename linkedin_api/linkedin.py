@@ -1971,7 +1971,7 @@ class Linkedin(object):
 
             # Make the download function async if it isn't already
             file = download_file_from_url(url)
-            print("FILES!", file)
+            print("FILES 1!", file)
 
             file_metadata = {
                 "mediaUploadType": "MESSAGING_FILE_ATTACHMENT",
@@ -1983,12 +1983,13 @@ class Linkedin(object):
                 f"/voyagerVideoDashMediaUploadMetadata?action=upload",
                 json=file_metadata
             )
-            print("RES", res)
+            print("RES 1", res)
             resContent = res.json()
             assetUrn = resContent.get("value", {}).get("urn", "")
             singleUploadUrl = resContent.get("value", {}).get("singleUploadUrl", "")
             filepath = os.path.join("files", file["fileId"])
-            print("singleUploadUrl", singleUploadUrl)
+            print("PATH 1", filepath)
+            print("singleUploadUrl 1", singleUploadUrl)
             with open(filepath, "rb") as rawFile:
                 self._put(
                     uri=None,
@@ -1996,7 +1997,7 @@ class Linkedin(object):
                     data=rawFile,
                 )
 
-            updated_asset_urn = f"{assetUrn}---{file['fileId']}"
+            updated_asset_urn = f"{assetUrn}---{file['assetData']}"
             return updated_asset_urn
         except Exception as e:
             print(e)
@@ -2008,7 +2009,7 @@ class Linkedin(object):
     ):
         """Get file metadata for a given digitalmediaAsset URN.
 
-        :param assetUrn: Asset URN of the file
+        :param url: Asset URN of the file
 
         :return: Dict of file metadata
         :rtype: Dict

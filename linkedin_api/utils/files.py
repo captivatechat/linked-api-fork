@@ -36,7 +36,8 @@ def download_file_from_url(url):
         "byteSize": total_bytes,
         "mediaType": content_type,
         "name": filename,
-        "fileId": filename_with_uuid
+        "fileId": filename_with_uuid,
+        "assetData": f"{filename_with_uuid}---{total_bytes}"
     }
     
 def get_file_properties(assetUrn: str):
@@ -46,16 +47,15 @@ def get_file_properties(assetUrn: str):
         assetUrnValue = parts[0]
         id = parts[1]
         filename = parts[2]
+        file_size = parts[3]
 
         file_path = "---".join([parts[1], parts[2]])
-
+        print("PATH FILES 1", file_path)
         mime_type, _ = mimetypes.guess_type(file_path)
         if not mime_type:
             mime_type = "application/octet-stream"  # Default MIME type if unknown
         print("mime type 1", mime_type)
-        os.makedirs("files", exist_ok=True)
-        # Get the file size
-        file_size = os.path.getsize(file_path)
+
         print({
             "assetUrn": assetUrnValue,
             "byteSize": file_size,
