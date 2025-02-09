@@ -20,6 +20,8 @@ def download_file_from_url(url):
 
     # Download and save the file
     total_bytes = 0
+    # Ensure the directory exists
+    os.makedirs("files", exist_ok=True)
     with open(os.path.join("files", filename_with_uuid), "wb") as file:
         for chunk in response.iter_content(chunk_size=8192):
             file.write(chunk)
@@ -45,7 +47,7 @@ def get_file_properties(assetUrn: str):
         id = parts[1]
         filename = parts[2]
 
-        file_path = os.path.join(parts[1], parts[2])
+        file_path = "---".join([parts[1], parts[2]])
 
         mime_type = subprocess.run(["file", "--mime-type", "-b", os.path.join("files", file_path)], capture_output=True, text=True).stdout.strip()
         # Get the file size
