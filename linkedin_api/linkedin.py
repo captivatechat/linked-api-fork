@@ -2035,9 +2035,6 @@ class Linkedin(object):
         try:
             if not file:
                 return "File is empty"
-            
-            self.is_authenticated(res=res)
-
             res = None
 
             file_metadata = {
@@ -2053,15 +2050,14 @@ class Linkedin(object):
 
             resContent = res.json()
 
-            print(resContent)
-
             assetUrn = resContent.get("value", {}).get("urn", "")
             singleUploadUrl = resContent.get("value", {}).get("singleUploadUrl", "")
 
-            self._put(
-                singleUploadUrl,
-                data=file["file"]
-            )
+            with open(file["newName"], "rb") as file:
+                self._put(
+                    singleUploadUrl,
+                    data=file
+                )
             
             return assetUrn
         except Exception as e:
