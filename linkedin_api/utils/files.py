@@ -53,6 +53,7 @@ def get_file_properties(assetUrn: str):
         if not mime_type:
             mime_type = "application/octet-stream"  # Default MIME type if unknown
 
+        os.makedirs("files", exist_ok=True)
         # Get the file size
         file_size = os.path.getsize(os.path.join("files", file_path))
         return {
