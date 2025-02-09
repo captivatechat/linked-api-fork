@@ -12,11 +12,8 @@ from operator import itemgetter
 from time import sleep
 from urllib.parse import urlencode, quote
 from typing import Dict, Union, Optional, List, Literal
-
-from fastapi import File
-
 from linkedin_api.client import Client
-from linkedin_api.utils.files import download_file_from_url, get_file_properties
+from utils.files import download_file_from_url, get_file_properties
 from linkedin_api.utils.helpers import (
     get_id_from_urn,
     get_urn_from_raw_update,
@@ -1839,73 +1836,6 @@ class Linkedin(object):
         # Return None if no company found
         return None
 
-    def send_message_v2(
-        self,
-        message_body: str,
-        conversation_urn_id: Optional[str] = None,
-        recipients: Optional[List[str]] = None,
-        user_profile_urn: str = None,
-        file_properties: Optional[dict] = None
-    ):
-        """Send a message to a given conversation or recipient.
-
-        :param message_body: Message text to send
-        :type message_body: str
-        :param conversation_urn_id: LinkedIn URN ID for a conversation
-        :type conversation_urn_id: str, optional
-        :param recipients: List of profile urn id's
-        :type recipients: list, optional
-        :param file_properties: Dictionary containing file attachment properties
-        :type file_properties: dict, optional
-
-        :return: Error state. If True, an error occurred.
-        :rtype: bool
-        """
-        params = { "action": "createMessage" }
-
-        if not (conversation_urn_id or recipients or user_profile_urn):
-            self.logger.debug("Must provide [conversation_urn_id] or [recipients].")
-            return True
-
-        message_event = {
-            "message": {
-                "body": {
-                    "attributes": [],
-                    "text": message_body,
-                },
-                "originToken": str(uuid.uuid4()),
-            },
-            "mailboxUrn": user_profile_urn,
-            "trackingId": generate_trackingId_as_charString(),
-            "dedupeByClientGeneratedToken": False,
-            "messageDraftUrn": f"urn:li:msg_messageDraft:({user_profile_urn},{str(uuid.uuid4())})"
-        }
-
-        if file_properties:
-            message_event["renderContentUnions"] = [
-                {"file": file_properties}
-            ]
-
-        res = None
-
-        if recipients and not conversation_urn_id:
-            message_event["hostRecipientUrns"] = recipients
-            res = self._post(
-                f"/voyagerMessagingDashMessengerMessages",
-                params=params,
-                data=json.dumps(message_event),
-            )
-        else:
-            message_event["conversationUrn"] = f"urn:li:msg_conversation:({user_profile_urn},{conversation_urn_id})"
-            res = self._post(
-                f"/voyagerMessagingDashMessengerMessages",
-                params=params,
-                data=json.dumps(message_event),
-            )
-
-        self.is_authenticated(res=res)
-        return res.status_code > 201
-
     def check_member_connection(
         self,
         public_id: str,
@@ -1959,8 +1889,7 @@ class Linkedin(object):
         
         return "pending-invitation"
 
-
-    async def send_message_v2(
+    def send_message_v2(
         self,
         message_body: str,
         conversation_urn_id: Optional[str] = None,
@@ -2009,23 +1938,24 @@ class Linkedin(object):
 
         if recipients and not conversation_urn_id:
             message_event["hostRecipientUrns"] = recipients
-            res = await self._post(
+            res = self._post(
                 f"/voyagerMessagingDashMessengerMessages",
                 params=params,
                 data=json.dumps(message_event),
             )
         else:
             message_event["conversationUrn"] = f"urn:li:msg_conversation:({user_profile_urn},{conversation_urn_id})"
-            res = await self._post(
+            res = self._post(
                 f"/voyagerMessagingDashMessengerMessages",
                 params=params,
                 data=json.dumps(message_event),
             )
 
+        print(message_event)
         self.is_authenticated(res=res)
         return res.status_code > 201
 
-    async def message_file_upload(self, url: str):
+    def message_file_upload(self, url: str):
         """Uploads a file to LinkedIn using LinkedIn API. Returns file metadata including the digitalmediaAsset URN.
 
         :param url: URL of the file
@@ -2040,7 +1970,7 @@ class Linkedin(object):
             res = None
 
             # Make the download function async if it isn't already
-            file = await download_file_from_url(url)
+            file = download_file_from_url(url)
             print("FILES!", file)
 
             file_metadata = {
@@ -2049,19 +1979,18 @@ class Linkedin(object):
                 "filename": file["name"]
             }
 
-            # Await the _post request if it's async
-            res = await self._post(
+            res = self._post(
                 f"/voyagerVideoDashMediaUploadMetadata?action=upload",
                 json=file_metadata
             )
+            print("RES", res)
             resContent = res.json()
             assetUrn = resContent.get("value", {}).get("urn", "")
             singleUploadUrl = resContent.get("value", {}).get("singleUploadUrl", "")
             filepath = os.path.join("files", file["fileId"])
-            
-            # Make sure _put is asynchronous if needed
+            print("singleUploadUrl", singleUploadUrl)
             with open(filepath, "rb") as rawFile:
-                await self._put(
+                self._put(
                     uri=None,
                     fullUrl=singleUploadUrl,
                     data=rawFile,
