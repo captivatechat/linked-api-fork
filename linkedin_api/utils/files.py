@@ -58,14 +58,14 @@ def get_file_properties(assetUrn: str):
 
         print({
             "assetUrn": assetUrnValue,
-            "byteSize": file_size,
+            "byteSize": int(file_size) if file_size else file_size,
             "mediaType": mime_type,
             "name": filename,
             "url": f"blob:https://www.linkedin.com/{id}"
         })
         return {
             "assetUrn": assetUrnValue,
-            "byteSize": file_size,
+            "byteSize": int(file_size) if file_size else file_size,
             "mediaType": mime_type,
             "name": filename,
             "url": f"blob:https://www.linkedin.com/{id}"
