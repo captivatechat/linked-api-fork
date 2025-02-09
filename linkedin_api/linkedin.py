@@ -4,6 +4,7 @@ Provides linkedin api-related code
 
 import json
 import logging
+import os
 import random
 import uuid
 import re
@@ -15,6 +16,7 @@ from typing import Dict, Union, Optional, List, Literal
 from fastapi import File
 
 from linkedin_api.client import Client
+from linkedin_api.utils.files import download_file_from_url, get_file_properties
 from linkedin_api.utils.helpers import (
     get_id_from_urn,
     get_urn_from_raw_update,
@@ -2022,20 +2024,22 @@ class Linkedin(object):
 
     def message_file_upload(
         self,
-        file: Dict
+        url: str
     ):
         """Uploads a file to LinkedIn using LinkedIn API. Returns file metadata including the digitalmediaAsset URN.
 
-        :param file: File metadata
+        :param url: URL of the file
 
         :return: digitalmediaAsset URN. Returns URN ID of the file.
         :rtype: str
         """
 
         try:
-            if not file:
-                return "File is empty"
+            if not url:
+                return "URL is empty"
             res = None
+
+            file = download_file_from_url(url)
 
             file_metadata = {
                 "mediaUploadType": "MESSAGING_FILE_ATTACHMENT",
@@ -2053,14 +2057,37 @@ class Linkedin(object):
             assetUrn = resContent.get("value", {}).get("urn", "")
             singleUploadUrl = resContent.get("value", {}).get("singleUploadUrl", "")
 
-            with open(file["newName"], "rb") as file:
+            with open(os.path.join("files", file["fileId"]), "rb") as file:
                 self._put(
                     singleUploadUrl,
                     data=file
                 )
             
-            return assetUrn
+            updated_asset_urn = f"{assetUrn}---{file['fileId']}"
+            return updated_asset_urn
         except Exception as e:
             print(e)
             return "File upload failed"
         
+    def get_file_metadata(
+        self,
+        assetUrn: str
+    ):
+        """Get file metadata for a given digitalmediaAsset URN.
+
+        :param url: Asset URN of the file
+
+        :return: Dict of file metadata
+        :rtype: Dict
+        """
+
+        try:
+            if not assetUrn:
+                return "Asset URN is missing"
+            
+            file_metadata = get_file_properties(assetUrn)
+            print(file_metadata)
+            return file_metadata
+        except Exception as e:
+            print(e)
+            return "get_file_metadata failed"
