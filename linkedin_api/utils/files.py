@@ -1,5 +1,4 @@
-from fastapi import HTTPException
-import magic
+import subprocess
 import requests
 import os
 import uuid
@@ -48,14 +47,12 @@ def get_file_properties(assetUrn: str):
 
         file_path = os.path.join(parts[1], parts[2])
 
-        file_magic = magic.Magic(mime=True)
-        # Get the MIME type (content type) of the file
-        content_type = file_magic.from_file(os.path.join("files", file_path))
+        mime_type = subprocess.run(["file", "--mime-type", "-b", os.path.join("files", file_path)], capture_output=True, text=True).stdout.strip()
         # Get the file size
         file_size = os.path.getsize(os.path.join("files", file_path))
         return {
             "byteSize": file_size,
-            "mediaType": content_type,
+            "mediaType": mime_type,
             "name": filename,
             "assetUrn": assetUrnValue,
             "url": f"blob:https://www.linkedin.com/{id}"
