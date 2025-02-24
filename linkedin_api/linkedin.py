@@ -114,7 +114,7 @@ class Linkedin(object):
         return self.client.session.put(url, **kwargs)
     
     def is_authenticated(self, res=None):
-        if res.status_code > 201:
+        if res.status_code > 204:
             message = "Unauthorized" if res.status_code in [400, 401] else json.loads(res.content)
             raise Exception(json.dumps({"status_code": res.status_code, "detail": message }))
         return True
@@ -1964,44 +1964,42 @@ class Linkedin(object):
         :rtype: str
         """
 
-        try:
-            if not url:
-                return "URL is empty"
-            res = None
+        if not url:
+            return "URL is empty"
+        res = None
 
-            # Make the download function async if it isn't already
-            file = download_file_from_url(url)
-            print("FILES 1!", file)
+        file = download_file_from_url(url)
+        print("FILES 1!", file)
 
-            file_metadata = {
-                "mediaUploadType": "MESSAGING_FILE_ATTACHMENT",
-                "fileSize": file["byteSize"],
-                "filename": file["name"]
-            }
+        file_metadata = {
+            "mediaUploadType": "MESSAGING_FILE_ATTACHMENT",
+            "fileSize": file["byteSize"],
+            "filename": file["name"]
+        }
 
-            res = self._post(
-                f"/voyagerVideoDashMediaUploadMetadata?action=upload",
-                json=file_metadata
+        res = self._post(
+            f"/voyagerVideoDashMediaUploadMetadata?action=upload",
+            json=file_metadata
+        )
+        
+        self.is_authenticated(res=res)
+
+        print("RES 1", res)
+        resContent = res.json()
+        assetUrn = resContent.get("value", {}).get("urn", "")
+        singleUploadUrl = resContent.get("value", {}).get("singleUploadUrl", "")
+        filepath = os.path.join("files", file["fileId"])
+        print("PATH 1", filepath)
+        print("singleUploadUrl 1", singleUploadUrl)
+        with open(filepath, "rb") as rawFile:
+            self._put(
+                uri=None,
+                fullUrl=singleUploadUrl,
+                data=rawFile,
             )
-            print("RES 1", res)
-            resContent = res.json()
-            assetUrn = resContent.get("value", {}).get("urn", "")
-            singleUploadUrl = resContent.get("value", {}).get("singleUploadUrl", "")
-            filepath = os.path.join("files", file["fileId"])
-            print("PATH 1", filepath)
-            print("singleUploadUrl 1", singleUploadUrl)
-            with open(filepath, "rb") as rawFile:
-                self._put(
-                    uri=None,
-                    fullUrl=singleUploadUrl,
-                    data=rawFile,
-                )
 
-            updated_asset_urn = f"{assetUrn}---{file['assetData']}"
-            return updated_asset_urn
-        except Exception as e:
-            print(e)
-            return "File upload failed"
+        updated_asset_urn = f"{assetUrn}---{file['assetData']}"
+        return updated_asset_urn
         
     def get_file_metadata(
         self,
