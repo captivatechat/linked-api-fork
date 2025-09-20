@@ -871,53 +871,53 @@ class Linkedin(object):
         return profile
 
     def get_more_profile_details(self, profile_id: str = None):
-    """Get more profile details.
+        """Get more profile details.
 
-    :param profile_id: profile_id for the given LinkedIn profile (e.g. 'ACoAACX1hoMBvWqT...') from get_profile()
-    :return: err if error occurred, profile data if successful
-    :rtype: dict or err or None
-    """
-    # Try to resolve profile_id if not provided
-    if profile_id is None:
-        print("profile_id not provided and unable to fetch current profile:", e)
-        return None
-    print
-    variables_raw = f"(profileUrn:urn:li:fsd_profile:{profile_id})"
-    # Keep parentheses unencoded, percent-encode the rest (colons, etc.)
-    variables_encoded = urllib.parse.quote(variables_raw, safe="()")
+        :param profile_id: profile_id for the given LinkedIn profile (e.g. 'ACoAACX1hoMBvWqT...') from get_profile()
+        :return: err if error occurred, profile data if successful
+        :rtype: dict or err or None
+        """
+        # Try to resolve profile_id if not provided
+        if profile_id is None:
+            print("profile_id not provided and unable to fetch current profile:", e)
+            return None
+        print
+        variables_raw = f"(profileUrn:urn:li:fsd_profile:{profile_id})"
+        # Keep parentheses unencoded, percent-encode the rest (colons, etc.)
+        variables_encoded = urllib.parse.quote(variables_raw, safe="()")
 
-    params = {
-        "includeWebMetadata": "true",
-        "variables": variables_encoded,
-        # use the queryId you provided
-        "queryId": "voyagerIdentityDashProfileCards.c5c6ae006152475b00720b4f9b83f6ff",
-    }
+        params = {
+            "includeWebMetadata": "true",
+            "variables": variables_encoded,
+            # use the queryId you provided
+            "queryId": "voyagerIdentityDashProfileCards.c5c6ae006152475b00720b4f9b83f6ff",
+        }
 
-    headers = {
-        "accept": "application/vnd.linkedin.normalized+json+2.1",
-        # if your _get helper needs additional headers (csrf, user-agent, cookies), ensure they are added by _get
-    }
-
-    try:
-        # Use your wrapper for GET requests; path is the same as in your example
-        res = self._get("/voyager/api/graphql", params=params, headers=headers)
-
-        if not res.ok:
-            try:
-                err = res.json()
-            except Exception:
-                err = res.text
-            print("GraphQL request failed:", res.status_code, err)
-            return err
+        headers = {
+            "accept": "application/vnd.linkedin.normalized+json+2.1",
+            # if your _get helper needs additional headers (csrf, user-agent, cookies), ensure they are added by _get
+        }
 
         try:
-            data = res.json()
-        except Exception as e:
-            print("Failed to parse GraphQL response JSON:", e)
-            return None
+            # Use your wrapper for GET requests; path is the same as in your example
+            res = self._get("/voyager/api/graphql", params=params, headers=headers)
 
-        print(data)
-        return data
+            if not res.ok:
+                try:
+                    err = res.json()
+                except Exception:
+                    err = res.text
+                print("GraphQL request failed:", res.status_code, err)
+                return err
+
+            try:
+                data = res.json()
+            except Exception as e:
+                print("Failed to parse GraphQL response JSON:", e)
+                return None
+
+            print(data)
+            return data
 
     except Exception as e:
         print("Exception while calling Voyager GraphQL endpoint:", e)
