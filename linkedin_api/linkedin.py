@@ -4,6 +4,7 @@ Provides linkedin api-related code
 
 import json
 import logging
+import os
 import random
 import uuid
 import re
@@ -11,8 +12,8 @@ from operator import itemgetter
 from time import sleep
 from urllib.parse import urlencode, quote
 from typing import Dict, Union, Optional, List, Literal
-
 from linkedin_api.client import Client
+from utils.files import download_file_from_url, get_file_properties
 from linkedin_api.utils.helpers import (
     get_id_from_urn,
     get_urn_from_raw_update,
@@ -103,8 +104,17 @@ class Linkedin(object):
         url = f"{self.client.API_BASE_URL if not base_request else self.client.LINKEDIN_BASE_URL}{uri}"
         return self.client.session.post(url, **kwargs)
     
+    def _put(self, uri: Optional[str], fullUrl: Optional[str], evade=default_evade, base_request=False, **kwargs):
+        """PUT request to Linkedin API"""
+        evade()
+        if fullUrl:
+            url = fullUrl
+        else:
+            url = f"{self.client.API_BASE_URL if not base_request else self.client.LINKEDIN_BASE_URL}{uri}"
+        return self.client.session.put(url, **kwargs)
+    
     def is_authenticated(self, res=None):
-        if res.status_code > 201:
+        if res.status_code > 204:
             message = "Unauthorized" if res.status_code in [400, 401] else json.loads(res.content)
             raise Exception(json.dumps({"status_code": res.status_code, "detail": message }))
         return True
@@ -859,6 +869,59 @@ class Linkedin(object):
         profile["urn_id"] = profile["entityUrn"].replace("urn:li:fs_profile:", "")
 
         return profile
+
+    def get_more_profile_details(self, profile_id: str = None):
+    """Get more profile details.
+
+    :param profile_id: profile_id for the given LinkedIn profile (e.g. 'ACoAACX1hoMBvWqT...') from get_profile()
+    :return: err if error occurred, profile data if successful
+    :rtype: dict or err or None
+    """
+    # Try to resolve profile_id if not provided
+    if profile_id is None:
+        print("profile_id not provided and unable to fetch current profile:", e)
+        return None
+    print
+    variables_raw = f"(profileUrn:urn:li:fsd_profile:{profile_id})"
+    # Keep parentheses unencoded, percent-encode the rest (colons, etc.)
+    variables_encoded = urllib.parse.quote(variables_raw, safe="()")
+
+    params = {
+        "includeWebMetadata": "true",
+        "variables": variables_encoded,
+        # use the queryId you provided
+        "queryId": "voyagerIdentityDashProfileCards.c5c6ae006152475b00720b4f9b83f6ff",
+    }
+
+    headers = {
+        "accept": "application/vnd.linkedin.normalized+json+2.1",
+        # if your _get helper needs additional headers (csrf, user-agent, cookies), ensure they are added by _get
+    }
+
+    try:
+        # Use your wrapper for GET requests; path is the same as in your example
+        res = self._get("/voyager/api/graphql", params=params, headers=headers)
+
+        if not res.ok:
+            try:
+                err = res.json()
+            except Exception:
+                err = res.text
+            print("GraphQL request failed:", res.status_code, err)
+            return err
+
+        try:
+            data = res.json()
+        except Exception as e:
+            print("Failed to parse GraphQL response JSON:", e)
+            return None
+
+        print(data)
+        return data
+
+    except Exception as e:
+        print("Exception while calling Voyager GraphQL endpoint:", e)
+        return None
 
     def get_profile_connections(self, urn_id: str, **kwargs) -> List:
         """Fetch connections for a given LinkedIn profile.
@@ -1831,7 +1894,8 @@ class Linkedin(object):
         message_body: str,
         conversation_urn_id: Optional[str] = None,
         recipients: Optional[List[str]] = None,
-        user_profile_urn: str = None
+        user_profile_urn: str = None,
+        file_properties: Optional[List[dict]] = None
     ):
         """Send a message to a given conversation or recipient.
 
@@ -1841,9 +1905,11 @@ class Linkedin(object):
         :type conversation_urn_id: str, optional
         :param recipients: List of profile urn id's
         :type recipients: list, optional
+        :param file_properties: Dictionary containing file attachment properties
+        :type file_properties: dict, optional
 
-        :return: Error state. If True, an error occured.
-        :rtype: boolean
+        :return: Error state. If True, an error occurred.
+        :rtype: bool
         """
         params = { "action": "createMessage" }
 
@@ -1865,6 +1931,9 @@ class Linkedin(object):
             "messageDraftUrn": f"urn:li:msg_messageDraft:({user_profile_urn},{str(uuid.uuid4())})"
         }
 
+        if file_properties and len(file_properties) > 0:
+            message_event["message"]["renderContentUnions"] = [{ "file": file } for file in file_properties]
+
         res = None
 
         if recipients and not conversation_urn_id:
@@ -1882,6 +1951,7 @@ class Linkedin(object):
                 data=json.dumps(message_event),
             )
 
+        print(message_event)
         self.is_authenticated(res=res)
         return res.status_code > 201
 
@@ -1937,3 +2007,72 @@ class Linkedin(object):
             return "not-connected"
         
         return "pending-invitation"
+
+    def message_file_upload(self, url: str):
+        """Uploads a file to LinkedIn using LinkedIn API. Returns file metadata including the digitalmediaAsset URN.
+
+        :param url: URL of the file
+
+        :return: digitalmediaAsset URN. Returns URN ID of the file.
+        :rtype: str
+        """
+
+        if not url:
+            return "URL is empty"
+        res = None
+
+        file = download_file_from_url(url)
+        print("FILES 1!", file)
+
+        file_metadata = {
+            "mediaUploadType": "MESSAGING_FILE_ATTACHMENT",
+            "fileSize": file["byteSize"],
+            "filename": file["name"]
+        }
+
+        res = self._post(
+            f"/voyagerVideoDashMediaUploadMetadata?action=upload",
+            json=file_metadata
+        )
+        
+        self.is_authenticated(res=res)
+
+        print("RES 1", res)
+        resContent = res.json()
+        assetUrn = resContent.get("value", {}).get("urn", "")
+        singleUploadUrl = resContent.get("value", {}).get("singleUploadUrl", "")
+        filepath = os.path.join("files", file["fileId"])
+        print("PATH 1", filepath)
+        print("singleUploadUrl 1", singleUploadUrl)
+        with open(filepath, "rb") as rawFile:
+            self._put(
+                uri=None,
+                fullUrl=singleUploadUrl,
+                data=rawFile,
+            )
+
+        updated_asset_urn = f"{assetUrn}---{file['assetData']}"
+        return updated_asset_urn
+        
+    def get_file_metadata(
+        self,
+        assetUrn: str
+    ):
+        """Get file metadata for a given digitalmediaAsset URN.
+
+        :param url: Asset URN of the file
+
+        :return: Dict of file metadata
+        :rtype: Dict
+        """
+
+        try:
+            if not assetUrn:
+                return "Asset URN is missing"
+            
+            file_metadata = get_file_properties(assetUrn)
+            print("METADATA 1", file_metadata)
+            return file_metadata
+        except Exception as e:
+            print(e)
+            return "get_file_metadata failed"
