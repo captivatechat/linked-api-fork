@@ -881,17 +881,14 @@ class Linkedin(object):
         if profile_id is None:
             print("profile_id not provided and unable to fetch current profile:", e)
             return None
-        print
-        variables_raw = f"(profileUrn:urn:li:fsd_profile:{profile_id})"
-        # Keep parentheses unencoded, percent-encode the rest (colons, etc.)
-        variables_encoded = urllib.parse.quote(variables_raw, safe="()")
 
-        params = {
-            "includeWebMetadata": "true",
-            "variables": variables_encoded,
-            # use the queryId you provided
-            "queryId": "voyagerIdentityDashProfileCards.c5c6ae006152475b00720b4f9b83f6ff",
-        }
+        entityUrn = f"urn:li:fsd_profile:{profile_id}"
+        encoded_urn = quote(f"{entityUrn}")
+        variables = f"profileUrn:{encoded_urn}"
+
+        query_id = (
+            "voyagerIdentityDashProfileCards.c5c6ae006152475b00720b4f9b83f6ff"
+        )
 
         headers = {
             "accept": "application/vnd.linkedin.normalized+json+2.1",
@@ -900,8 +897,10 @@ class Linkedin(object):
 
         try:
             # Use your wrapper for GET requests; path is the same as in your example
-            res = self._get("/voyager/api/graphql", params=params, headers=headers)
-
+            res = self._fetch(
+            f"/graphql?variables=({variables})&queryId={query_id}&includeWebMetadata=true",
+            headers={"accept": "application/vnd.linkedin.normalized+json+2.1"},
+        )
             if not res.ok:
                 try:
                     err = res.json()
@@ -911,17 +910,23 @@ class Linkedin(object):
                 return err
 
             try:
+                # data contains the full profile data
                 data = res.json()
+                # for now, we just need the created date of the profile
+                match = next((item for item in data.get("included", []) if item.get("entityUrn") == entityUrn), None)
+                if match is None:
+                    print("Profile data not found in GraphQL response.")
+                    return None
+                return match
             except Exception as e:
                 print("Failed to parse GraphQL response JSON:", e)
                 return None
 
-            print(data)
             return data
 
-    except Exception as e:
-        print("Exception while calling Voyager GraphQL endpoint:", e)
-        return None
+        except Exception as e:
+            print("Exception while calling Voyager GraphQL endpoint:", e)
+            return None
 
     def get_profile_connections(self, urn_id: str, **kwargs) -> List:
         """Fetch connections for a given LinkedIn profile.
