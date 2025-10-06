@@ -1003,7 +1003,7 @@ class Linkedin(object):
             return value if isinstance(value, dict) else {}
 
         def safe_list(value):
-            """Ensure we always have a list before indexing."""
+            """Ensure we always have a list before indexing/iterating."""
             return value if isinstance(value, list) else []
 
         profile_urn = f"urn:li:fsd_profile:{urn_id}"
@@ -1022,18 +1022,23 @@ class Linkedin(object):
             """Parse a single experience item safely."""
             component = safe_dict(safe_dict(item).get("components")).get("entityComponent", {})
 
-            title = safe_dict(component.get("titleV2")).get("text", {}).get("text")
-            subtitle = safe_dict(component.get("subtitle"))
-            subtitle_text = subtitle.get("text", "")
+            # Title
+            title_data = safe_dict(component.get("titleV2")).get("text", {})
+            title = safe_dict(title_data).get("text")
 
+            # Subtitle (company + employment type)
+            subtitle_data = safe_dict(component.get("subtitle"))
+            subtitle_text = subtitle_data.get("text", "")
             company = subtitle_text.split(" · ")[0] if subtitle_text else None
             employment_type = (
                 subtitle_text.split(" · ")[1] if " · " in subtitle_text else None
             )
 
+            # Location
             metadata = safe_dict(component.get("metadata"))
             location = metadata.get("text")
 
+            # Duration, start & end dates
             caption = safe_dict(component.get("caption"))
             duration_text = caption.get("text", "")
             duration_parts = duration_text.split(" · ") if duration_text else []
@@ -1043,33 +1048,28 @@ class Linkedin(object):
             start_date = date_parts[0] if date_parts else None
             end_date = date_parts[1] if len(date_parts) > 1 else None
 
-            # Description
+            # Description (nested components)
+            description = None
             sub_components = safe_dict(component.get("subComponents"))
-            sub_components_list = safe_list(sub_components.get("components"))
-            fixed_list_component = None
-            if sub_components_list:
-                fixed_list_component = safe_dict(
-                    safe_dict(sub_components_list[0]).get("components")
-                ).get("fixedListComponent")
-
-            fixed_list_text_component = None
-            if fixed_list_component:
-                inner_components = safe_list(fixed_list_component.get("components"))
-                if inner_components:
-                    fixed_list_text_component = safe_dict(
-                        safe_dict(inner_components[0]).get("components")
-                    ).get("textComponent")
-
-            description = (
-                safe_dict(fixed_list_text_component).get("text", {}).get("text")
-                if fixed_list_text_component
-                else None
-            )
+            for sub in safe_list(sub_components.get("components")):
+                sub_comp = safe_dict(sub).get("components")
+                if not sub_comp:
+                    continue
+                fixed_list_component = safe_dict(sub_comp).get("fixedListComponent")
+                if not fixed_list_component:
+                    continue
+                for inner in safe_list(fixed_list_component.get("components")):
+                    text_comp = safe_dict(safe_dict(inner).get("components")).get("textComponent")
+                    if text_comp:
+                        description = safe_dict(text_comp).get("text", {}).get("text")
+                        break
+                if description:
+                    break
 
             return {
                 "title": title,
                 "companyName": company if not is_group_item else None,
-                "employmentType": company if is_group_item else employment_type,
+                "employmentType": None if is_group_item else employment_type,
                 "locationName": location,
                 "duration": duration,
                 "startDate": start_date,
@@ -1084,29 +1084,24 @@ class Linkedin(object):
             ).get("entityComponent", {})
 
             sub_components = safe_dict(entity_component.get("subComponents"))
-            sub_components_list = safe_list(sub_components.get("components"))
-            sub_components_components = (
-                safe_dict(sub_components_list[0]).get("components")
-                if sub_components_list
-                else None
-            )
-
-            paged_list_component_id = (
-                safe_dict(sub_components_components).get("*pagedListComponent", "")
-                if sub_components_components
-                else None
-            )
-
-            if paged_list_component_id and "fsd_profilePositionGroup" in paged_list_component_id:
-                pattern = r"urn:li:fsd_profilePositionGroup:\([A-z0-9]+,[A-z0-9]+\)"
-                match = re.search(pattern, paged_list_component_id)
-                return match.group(0) if match else None
+            for sub in safe_list(sub_components.get("components")):
+                comp = safe_dict(sub).get("components")
+                if not comp:
+                    continue
+                paged_list_component_id = safe_dict(comp).get("*pagedListComponent", "")
+                if paged_list_component_id and "fsd_profilePositionGroup" in paged_list_component_id:
+                    pattern = r"urn:li:fsd_profilePositionGroup:\([A-z0-9]+,[A-z0-9]+\)"
+                    match = re.search(pattern, paged_list_component_id)
+                    if match:
+                        return match.group(0)
             return None
 
         items = []
-        elements = safe_list(
-            safe_dict(safe_list(data.get("included"))[0]).get("components", {}).get("elements")
-        )
+
+        # Extract the main "elements" list safely
+        included = safe_list(data.get("included"))
+        first_included = safe_dict(included[0]) if included else {}
+        elements = safe_list(safe_dict(first_included.get("components")).get("elements"))
 
         for item in elements:
             grouped_item_id = get_grouped_item_id(item)
@@ -1119,14 +1114,16 @@ class Linkedin(object):
                 location = safe_dict(component.get("caption")).get("text")
 
                 group = [
-                    i
-                    for i in safe_list(data.get("included"))
+                    i for i in safe_list(data.get("included"))
                     if grouped_item_id in i.get("entityUrn", "")
                 ]
                 if not group:
                     continue
 
-                for group_item in safe_list(group[0].get("components", {}).get("elements")):
+                group_elements = safe_list(
+                    safe_dict(group[0].get("components")).get("elements")
+                )
+                for group_item in group_elements:
                     parsed_data = parse_item(group_item, is_group_item=True)
                     parsed_data["companyName"] = company
                     parsed_data["locationName"] = location
@@ -1147,7 +1144,7 @@ class Linkedin(object):
             return value if isinstance(value, dict) else {}
 
         def safe_list(value):
-            """Ensure we always have a list before indexing."""
+            """Ensure we always have a list before indexing/iterating."""
             return value if isinstance(value, list) else []
 
         profile_urn = f"urn:li:fsd_profile:{urn_id}"
@@ -1173,21 +1170,22 @@ class Linkedin(object):
 
             # Subtitle / degree info
             subtitle = safe_dict(component.get("subtitle"))
-            degree = subtitle.get("text")
+            degree = subtitle.get("text") or None
 
             # School info
-            school_name = safe_dict(safe_dict(component.get("titleV2")).get("text")).get("text")
+            title_data = safe_dict(component.get("titleV2"))
+            school_name = safe_dict(title_data.get("text")).get("text")
             school = {
-                "objectUrn": subtitle.get("objectUrn"),
-                "entityUrn": subtitle.get("entityUrn"),
-                "schoolName": school_name,
-                "schoolUrn": subtitle.get("entityUrn"),
-                "logoUrl": subtitle.get("logoUrl"),
+                "objectUrn": subtitle.get("objectUrn") or None,
+                "entityUrn": subtitle.get("entityUrn") or None,
+                "schoolName": school_name or "",
+                "schoolUrn": subtitle.get("entityUrn") or None,
+                "logoUrl": subtitle.get("logoUrl") or None,
             }
 
             # Extra info / field of study
             metadata = safe_dict(component.get("metadata"))
-            extra_info = metadata.get("text")
+            extra_info = metadata.get("text") or None
 
             # Dates & duration (caption: "2010 - 2014 · 4 yrs")
             caption = safe_dict(component.get("caption"))
@@ -1195,35 +1193,40 @@ class Linkedin(object):
             duration_parts = duration_text.split(" · ") if duration_text else []
             date_parts = duration_parts[0].split(" - ") if duration_parts else []
 
-            duration = duration_parts[1] if len(duration_parts) > 1 else None
+            duration = duration_parts[1].strip() if len(duration_parts) > 1 else None
             start_date = date_parts[0].strip() if date_parts else None
             end_date = date_parts[1].strip() if len(date_parts) > 1 else None
 
             # Description (activities, societies, etc.)
             description = None
             sub_components = safe_dict(component.get("subComponents"))
-            sub_comps_list = safe_list(sub_components.get("components"))
-            if sub_comps_list:
-                first = safe_dict(sub_comps_list[0]).get("components", {})
-                fixed_list = safe_dict(first).get("fixedListComponent")
-                if fixed_list:
-                    fl_components = safe_list(fixed_list.get("components"))
-                    if fl_components:
-                        text_comp = safe_dict(fl_components[0]).get("components", {}).get("textComponent", {})
-                        if text_comp:
-                            description = safe_dict(text_comp).get("text", {}).get("text")
+            for sub in safe_list(sub_components.get("components")):
+                inner_comp = safe_dict(sub).get("components")
+                if not inner_comp:
+                    continue
+                fixed_list = safe_dict(inner_comp).get("fixedListComponent")
+                if not fixed_list:
+                    continue
+                for fl_item in safe_list(fixed_list.get("components")):
+                    text_comp = safe_dict(safe_dict(fl_item).get("components")).get("textComponent")
+                    if text_comp:
+                        description = safe_dict(text_comp).get("text", {}).get("text")
+                        if description:
+                            break
+                if description:
+                    break
 
             return {
-                "entityUrn": item.get("entityUrn"),
+                "entityUrn": item.get("entityUrn") or "",
                 "school": school,
-                "degreeName": degree,
-                "fieldOfStudy": extra_info,
+                "degreeName": degree or "",
+                "fieldOfStudy": extra_info or "",
                 "duration": duration,
                 "timePeriod": {
                     "startDate": start_date,
                     "endDate": end_date,
                 },
-                "description": description,
+                "description": description or "",
             }
 
         items = []
@@ -1231,12 +1234,12 @@ class Linkedin(object):
         if included:
             root_components = safe_dict(included[0]).get("components", {})
             elements = safe_list(root_components.get("elements"))
-            for item in elements:
+            for idx, item in enumerate(elements):
                 try:
                     parsed = parse_item(item)
                     items.append(parsed)
                 except Exception as e:
-                    print(f"[WARN] Failed parsing education item: {e}")
+                    print(f"[WARN] Failed parsing education item idx={idx}: {e}")
                     continue
 
         return items
