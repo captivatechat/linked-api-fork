@@ -1,0 +1,76 @@
+import mimetypes
+import requests
+import os
+import uuid
+
+def download_file_from_url(url):
+    response = requests.get(url, stream=True)
+    
+    # Extract filename from headers or URL
+    content_disposition = response.headers.get("Content-Disposition")
+    if content_disposition and "filename=" in content_disposition:
+        filename = content_disposition.split("filename=")[-1].strip(' "')
+    else:
+        filename = os.path.basename(url.split("?")[0])  # Remove query params if present
+
+    content_type = response.headers.get("Content-Type", "Unknown")
+
+    file_uuid = uuid.uuid4()
+    filename_with_uuid = f"{file_uuid}---{filename}"
+
+    # Download and save the file
+    total_bytes = 0
+    # Ensure the directory exists
+    os.makedirs("files", exist_ok=True)
+    with open(os.path.join("files", filename_with_uuid), "wb") as file:
+        for chunk in response.iter_content(chunk_size=8192):
+            file.write(chunk)
+            total_bytes += len(chunk)
+
+    # Log the details
+    print(f"Downloaded: {filename}")
+    print(f"File Size: {total_bytes} bytes" if total_bytes else "Unknown size")
+    print(f"Content Type: {content_type}")
+
+    return {
+        "byteSize": total_bytes,
+        "mediaType": content_type,
+        "name": filename,
+        "fileId": filename_with_uuid,
+        "assetData": f"{filename_with_uuid}---{total_bytes}"
+    }
+    
+def get_file_properties(assetUrn: str):
+    parts = assetUrn.split("---")
+
+    if len(parts) > 1:
+        assetUrnValue = parts[0]
+        id = parts[1]
+        filename = parts[2]
+        file_size = parts[3]
+
+        file_path = "---".join([parts[1], parts[2]])
+        print("PATH FILES", file_path)
+        mime_type, _ = mimetypes.guess_type(file_path)
+        if not mime_type:
+            mime_type = "application/octet-stream"  # Default MIME type if unknown
+        print("mime type 2", mime_type)
+
+        print({
+            "assetUrn": assetUrnValue,
+            "byteSize": int(file_size) if file_size else file_size,
+            "mediaType": mime_type,
+            "name": filename,
+            "url": f"blob:https://www.linkedin.com/{id}"
+        })
+        return {
+            "assetUrn": assetUrnValue,
+            "byteSize": int(file_size) if file_size else file_size,
+            "mediaType": mime_type,
+            "name": filename,
+            "url": f"blob:https://www.linkedin.com/{id}"
+        }
+    else:
+        print("No ID found")
+    
+    return "Invalid asset URN" 

@@ -4,15 +4,16 @@ Provides linkedin api-related code
 
 import json
 import logging
+import os
 import random
 import uuid
 import re
 from operator import itemgetter
 from time import sleep
-from urllib.parse import urlencode, quote
+from urllib.parse import urlencode, quote, unquote
 from typing import Dict, Union, Optional, List, Literal
-
 from linkedin_api.client import Client
+from utils.files import download_file_from_url, get_file_properties
 from linkedin_api.utils.helpers import (
     get_id_from_urn,
     get_urn_from_raw_update,
@@ -21,10 +22,13 @@ from linkedin_api.utils.helpers import (
     parse_list_raw_urns,
     generate_trackingId,
     generate_trackingId_as_charString,
+    extract_public_id,
+    extract_profile_picture,
 )
+from pathlib import Path
+import re
 
 logger = logging.getLogger(__name__)
-
 
 def default_evade():
     """
@@ -103,12 +107,22 @@ class Linkedin(object):
         url = f"{self.client.API_BASE_URL if not base_request else self.client.LINKEDIN_BASE_URL}{uri}"
         return self.client.session.post(url, **kwargs)
     
+    def _put(self, uri: Optional[str], fullUrl: Optional[str], evade=default_evade, base_request=False, **kwargs):
+        """PUT request to Linkedin API"""
+        evade()
+        if fullUrl:
+            url = fullUrl
+        else:
+            url = f"{self.client.API_BASE_URL if not base_request else self.client.LINKEDIN_BASE_URL}{uri}"
+        return self.client.session.put(url, **kwargs)
+    
     def is_authenticated(self, res=None):
-        if res.status_code > 201:
+        if res.status_code > 204:
             message = "Unauthorized" if res.status_code in [400, 401] else json.loads(res.content)
             raise Exception(json.dumps({"status_code": res.status_code, "detail": message }))
         return True
 
+    ## NOT WORKING BECAUSE OF get_profile
     def get_profile_posts(
         self,
         public_id: Optional[str] = None,
@@ -438,7 +452,12 @@ class Linkedin(object):
         data = self.search(params, **kwargs)
 
         results = []
-        for item in data:
+        for item in data:  
+            entity_urn_raw = item.get("entityUrn")
+            extracted_urn = get_urn_from_raw_update(entity_urn_raw)
+            profile_id = get_id_from_urn(extracted_urn)
+            navigation_url = item.get("navigationUrl")
+
             if (
                 not include_private_profiles
                 and (item.get("entityCustomTrackingInfo") or {}).get(
@@ -447,6 +466,19 @@ class Linkedin(object):
                 == "OUT_OF_NETWORK"
             ):
                 continue
+
+            profile_picture = extract_profile_picture(item)
+        
+            prefix = None
+            suffix = None
+            if profile_picture is not None:
+                match = re.search(r"(_\d+_\d+/)", profile_picture)
+
+                if match:
+                    split_index = match.start() + 1  # include the underscore before numbers
+                    prefix = profile_picture[:split_index]
+                    suffix = profile_picture[split_index:]
+
             results.append(
                 {
                     "urn_id": get_id_from_urn(
@@ -458,9 +490,16 @@ class Linkedin(object):
                     "jobtitle": (item.get("primarySubtitle") or {}).get("text", None),
                     "location": (item.get("secondarySubtitle") or {}).get("text", None),
                     "name": (item.get("title") or {}).get("text", None),
+                    "entityUrn": f"urn:li:fs_profile:{profile_id}" if profile_id else None,
+                    "member_urn": item.get("trackingUrn"),
+                    "profile_id": profile_id,
+                    "profile_urn": f"urn:li:fs_miniProfile:{profile_id}" if profile_id else None,
+                    "public_id": extract_public_id(navigation_url),
+                    "headline": (item.get("primarySubtitle") or {}).get("text", None),
+                    "displayPictureUrl": prefix,
+                    "img_100_100": suffix,
                 }
             )
-
         return results
 
     def search_companies(self, keywords: Optional[List[str]] = None, **kwargs) -> List:
@@ -734,6 +773,7 @@ class Linkedin(object):
 
         return skills
 
+    ## NOT WORKING (DEPRECATED)
     def get_profile(
         self, public_id: Optional[str] = None, urn_id: Optional[str] = None
     ) -> Dict:
@@ -859,6 +899,79 @@ class Linkedin(object):
         profile["urn_id"] = profile["entityUrn"].replace("urn:li:fs_profile:", "")
 
         return profile
+
+    def get_more_profile_details(self, public_id: str = None):
+        """Get more profile details.
+
+        :param public_id: public_id for the given LinkedIn profile from get_profile_new()
+        :return: err if error occurred, profile data if successful
+        :rtype: dict or err or None
+        """
+        # Try to resolve profile_id if not provided
+        if public_id is None:
+            print("public_id not provided and unable to fetch current profile:", e)
+            return None
+            
+        public_id = unquote(public_id)
+
+        try:
+            
+            res = self._fetch(
+                f"/graphql?variables=(vanityName:{public_id})&queryId=voyagerIdentityDashProfiles.2ca312bdbe80fac72fd663a3e06a83e7",
+                headers={"accept": "application/vnd.linkedin.normalized+json+2.1"}, # This is important to get full data including the "included" section
+            )
+
+            if not res.ok:
+                try:
+                    err = res.json()
+                except Exception:
+                    err = res.text
+                print("GraphQL request failed:", res.status_code, err)
+                return err
+
+            try:
+                # data contains the full profile data
+                data = res.json()
+            except Exception as e:
+                print("Failed to parse GraphQL response JSON:", e)
+                return None
+
+            res = self._fetch(
+                f"/graphql?variables=(vanityName:{public_id})&queryId=voyagerIdentityDashProfiles.34ead06db82a2cc9a778fac97f69ad6a",
+                headers={"accept": "application/vnd.linkedin.normalized+json+2.1"}, # This is important to get full data including the "included" section
+            )
+            
+            if not res.ok:
+                try:
+                    err = res.json()
+                except Exception:
+                    err = res.text
+                print("GraphQL request failed:", res.status_code, err)
+                return err
+
+            try:
+                # data contains the full profile data
+                data = res.json()
+                # for now, we just need the created date of the profile
+                included = data.get("included", []) or []
+                profile_obj = None
+                for entry in included:
+                    if entry.get("publicIdentifier") == public_id:
+                        profile_obj = entry
+                        break
+                if profile_obj is None:
+                    print("Profile data not found in GraphQL response.")
+                    return None
+                return profile_obj
+            except Exception as e:
+                print("Failed to parse GraphQL response JSON:", e)
+                return None
+
+            return data
+
+        except Exception as e:
+            print("Exception while calling Voyager GraphQL endpoint:", e)
+            return None
 
     def get_profile_connections(self, urn_id: str, **kwargs) -> List:
         """Fetch connections for a given LinkedIn profile.
@@ -1017,6 +1130,107 @@ class Linkedin(object):
             # else, parse the regular item
             parsed_data = parse_item(item)
             items.append(parsed_data)
+
+        return items
+
+    def get_profile_education(self, urn_id: str) -> List:
+        """Fetch education for a given LinkedIn profile."""
+
+        profile_urn = f"urn:li:fsd_profile:{urn_id}"
+        variables = ",".join(
+            [f"profileUrn:{quote(profile_urn)}", "sectionType:education"]
+        )
+        query_id = "voyagerIdentityDashProfileComponents.7af5d6f176f11583b382e37e5639e69e"
+
+        res = self._fetch(
+            f"/graphql?variables=({variables})&queryId={query_id}&includeWebMetadata=true",
+            headers={"accept": "application/vnd.linkedin.normalized+json+2.1"},
+        )
+
+        def parse_item(item: dict) -> dict:
+            """Safely parse a single education card item into LinkedIn-like schema."""
+            component = (item.get("components", {})
+                            .get("entityComponent", {}) or {})
+
+            subtitle = component.get("subtitle", {}) or {}
+
+            # Degree / title
+            degree = subtitle.get("text")
+
+            # School name
+            school_name = (
+                component.get("titleV2", {})
+                        .get("text", {})
+                        .get("text")
+            )
+            school = {
+                "objectUrn": subtitle.get("objectUrn"),
+                "entityUrn": subtitle.get("entityUrn"),
+                "schoolName": school_name,
+                "schoolUrn": subtitle.get("entityUrn"),
+                "logoUrl": subtitle.get("logoUrl")
+            }
+
+            metadata = component.get("metadata") or {}
+            extra_info = metadata.get("text")
+
+            # Dates & duration (caption: "2010 - 2014 · 4 yrs")
+            caption = component.get("caption") or {}
+            duration_text = caption.get("text") if isinstance(caption, dict) else None
+            duration_parts = duration_text.split(" · ") if duration_text else []
+            date_parts = duration_parts[0].split(" - ") if duration_parts else []
+
+            duration = duration_parts[1] if len(duration_parts) > 1 else None
+            start_date = date_parts[0].strip() if date_parts else None
+            end_date = date_parts[1].strip() if len(date_parts) > 1 else None
+
+            # Description (activities, societies, etc.)
+            description = None
+            sub_components = component.get("subComponents", {})
+            if isinstance(sub_components, dict):
+                sub_comps = sub_components.get("components", [])
+                if isinstance(sub_comps, list) and sub_comps:
+                    first = sub_comps[0].get("components", {}) if isinstance(sub_comps[0], dict) else {}
+                    fixed_list = first.get("fixedListComponent")
+                    if isinstance(fixed_list, dict):
+                        fl_components = fixed_list.get("components", [])
+                        if isinstance(fl_components, list) and fl_components:
+                            text_comp = fl_components[0].get("components", {}).get("textComponent", {})
+                            if text_comp:
+                                description = text_comp.get("text", {}).get("text")
+
+            return {
+                "entityUrn": item.get("entityUrn"),
+                "school": school,
+                "degreeName": degree,
+                "fieldOfStudy": extra_info,
+                "duration": duration,
+                "timePeriod": {
+                    "startDate": start_date,
+                    "endDate": end_date
+                },
+                "description": description,
+            }
+
+        try:
+            data = res.json()
+        except Exception as e:
+            print("[ERROR] Failed to decode education JSON:", e)
+            return []
+
+        items = []
+        included = data.get("included", [])
+        if isinstance(included, list) and included:
+            root = included[0].get("components", {}) if isinstance(included[0], dict) else {}
+            elements = root.get("elements", [])
+            if isinstance(elements, list):
+                for item in elements:
+                    try:
+                        parsed = parse_item(item)
+                        items.append(parsed)
+                    except Exception as e:
+                        print(f"[WARN] Failed parsing education item: {e}")
+                        continue
 
         return items
 
@@ -1441,7 +1655,7 @@ class Linkedin(object):
             return False
 
         if not profile_urn:
-            profile_urn_string = self.get_profile(public_id=profile_public_id)[
+            profile_urn_string = self.get_profile_new(public_id=profile_public_id)[
                 "profile_urn"
             ]
             # Returns string of the form 'urn:li:fs_miniProfile:ACoAACX1hoMBvWqTY21JGe0z91mnmjmLy9Wen4w'
@@ -1831,7 +2045,8 @@ class Linkedin(object):
         message_body: str,
         conversation_urn_id: Optional[str] = None,
         recipients: Optional[List[str]] = None,
-        user_profile_urn: str = None
+        user_profile_urn: str = None,
+        file_properties: Optional[List[dict]] = None
     ):
         """Send a message to a given conversation or recipient.
 
@@ -1841,9 +2056,11 @@ class Linkedin(object):
         :type conversation_urn_id: str, optional
         :param recipients: List of profile urn id's
         :type recipients: list, optional
+        :param file_properties: Dictionary containing file attachment properties
+        :type file_properties: dict, optional
 
-        :return: Error state. If True, an error occured.
-        :rtype: boolean
+        :return: Error state. If True, an error occurred.
+        :rtype: bool
         """
         params = { "action": "createMessage" }
 
@@ -1865,6 +2082,9 @@ class Linkedin(object):
             "messageDraftUrn": f"urn:li:msg_messageDraft:({user_profile_urn},{str(uuid.uuid4())})"
         }
 
+        if file_properties and len(file_properties) > 0:
+            message_event["message"]["renderContentUnions"] = [{ "file": file } for file in file_properties]
+
         res = None
 
         if recipients and not conversation_urn_id:
@@ -1882,6 +2102,7 @@ class Linkedin(object):
                 data=json.dumps(message_event),
             )
 
+        print(message_event)
         self.is_authenticated(res=res)
         return res.status_code > 201
 
@@ -1937,3 +2158,278 @@ class Linkedin(object):
             return "not-connected"
         
         return "pending-invitation"
+
+    def message_file_upload(self, url: str):
+        """Uploads a file to LinkedIn using LinkedIn API. Returns file metadata including the digitalmediaAsset URN.
+
+        :param url: URL of the file
+
+        :return: digitalmediaAsset URN. Returns URN ID of the file.
+        :rtype: str
+        """
+
+        if not url:
+            return "URL is empty"
+        res = None
+
+        file = download_file_from_url(url)
+        print("FILES 1!", file)
+
+        file_metadata = {
+            "mediaUploadType": "MESSAGING_FILE_ATTACHMENT",
+            "fileSize": file["byteSize"],
+            "filename": file["name"]
+        }
+
+        res = self._post(
+            f"/voyagerVideoDashMediaUploadMetadata?action=upload",
+            json=file_metadata
+        )
+        
+        self.is_authenticated(res=res)
+
+        print("RES 1", res)
+        resContent = res.json()
+        assetUrn = resContent.get("value", {}).get("urn", "")
+        singleUploadUrl = resContent.get("value", {}).get("singleUploadUrl", "")
+        filepath = os.path.join("files", file["fileId"])
+        print("PATH 1", filepath)
+        print("singleUploadUrl 1", singleUploadUrl)
+        with open(filepath, "rb") as rawFile:
+            self._put(
+                uri=None,
+                fullUrl=singleUploadUrl,
+                data=rawFile,
+            )
+
+        updated_asset_urn = f"{assetUrn}---{file['assetData']}"
+        return updated_asset_urn
+        
+    def get_file_metadata(
+        self,
+        assetUrn: str
+    ):
+        """Get file metadata for a given digitalmediaAsset URN.
+
+        :param url: Asset URN of the file
+
+        :return: Dict of file metadata
+        :rtype: Dict
+        """
+
+        try:
+            if not assetUrn:
+                return "Asset URN is missing"
+            
+            file_metadata = get_file_properties(assetUrn)
+            print("METADATA 1", file_metadata)
+            return file_metadata
+        except Exception as e:
+            print(e)
+            return "get_file_metadata failed"
+
+    def get_profile_new(
+        self,
+        public_id: str,
+    ) -> Optional[Dict[str, any]]:
+        """Fetch data for a given LinkedIn profile and return fields from get_profile.
+
+        Returns a dict containing:
+        - firstName
+        - lastName
+        - profile_urn (urn:li:fsd_profile:ACoAACMo9oABMV4....) **fsd_profile** is important here 
+        - displayPictureUrl: vectorImage.rootUrl (may be None)
+        - img_{width}_{height}: fileIdentifyingUrlPathSegment for each artifact
+
+        :param public_id: LinkedIn public ID for a profile
+        :type public_id: str
+        :return: dict or None if profile not found / error
+        """
+        
+        if not public_id:
+            return None
+
+        public_id = unquote(public_id)
+
+        res = self._fetch(
+            f"/graphql?variables=(vanityName:{public_id})&includeWebMetadata=true&queryId=voyagerIdentityDashProfiles.a1a483e719b20537a256b6853cdca711",
+            headers={"accept": "application/vnd.linkedin.normalized+json+2.1"}, # This is important to get full data including the "included" section
+        )
+
+        # ensure we are authenticated / raise if not
+        self.is_authenticated(res=res)
+
+        try:
+            res_content = res.json()
+        except Exception:
+            return None
+
+        included = res_content.get("included") or []
+        # find the included entry with matching publicIdentifier
+        profile_obj = None
+        for entry in included:
+            if entry.get("publicIdentifier") == public_id:
+                profile_obj = entry
+                break
+
+        if not profile_obj:
+            return None
+
+        result: Dict[str, any] = {}
+        # navigate safely to vectorImage
+        # profile_picture = profile_obj.get("profilePicture") or {}
+        # disp_ref = profile_picture.get("displayImageReferenceResolutionResult") or {}
+        # vector_image = disp_ref.get("vectorImage") or {}
+        # root_url = vector_image.get("rootUrl")
+
+        # Display photo
+        # artifacts = vector_image.get("artifacts") or []
+        # for art in artifacts:
+        #     width = art.get("width")
+        #     height = art.get("height")
+        #     file_seg = art.get("fileIdentifyingUrlPathSegment")
+            
+        #     if file_seg is None:
+        #         continue
+        #     w = str(width) if width is not None else "unknownW"
+        #     h = str(height) if height is not None else "unknownH"
+        #     key = f"img_{w}_{h}"
+        #     result[key] = file_seg
+
+        # add firstName and lastName
+        result["firstName"] = profile_obj.get("firstName")
+        result["lastName"] = profile_obj.get("lastName")
+
+        # add location
+        location = profile_obj.get("location")
+
+        # add profile_urn
+        result["profile_urn"] = profile_obj.get("entityUrn")
+
+        # add urn_id
+        result["urn_id"] = get_id_from_urn(result["profile_urn"])
+        result["profile_id"] = get_id_from_urn(result["profile_urn"])
+        result["public_id"] = public_id
+
+        return result
+
+    def get_profile_experience(self, urn_id: str = None):
+        """Get profile experiences.
+
+        :param urn_id: urn_id for the given LinkedIn profile from get_profile_new()
+        :return: err if error occurred, profile data if successful
+        :rtype: dict or err or None
+        """
+        if urn_id is None:
+            print("urn_id not provided and unable to fetch current profile")
+            return None
+
+        try:
+            print(f"[DEBUG] Fetching profile experiences for: {urn_id}")
+            variables = f"profileUrn:urn:li:fsd_profile:{urn_id}"
+            encoded_vars = quote(variables, safe="")
+
+            url = f"/graphql?variables=({encoded_vars})&includeWebMetadata=true&queryId=voyagerIdentityDashProfileCards.f0415f0ff9d9968bab1cd89c0352f7c8"
+            res = self._fetch(
+                url,
+                headers={"accept": "application/vnd.linkedin.normalized+json+2.1"},
+            )
+
+            if not res.ok:
+                try:
+                    err = res.json()
+                except Exception:
+                    err = res.text
+                print("[ERROR] GraphQL request failed:", res.status_code, err)
+                return err
+
+            try:
+                data = res.json()
+                print("[DEBUG] Successfully parsed JSON response")
+            except Exception as e:
+                print("[ERROR] Failed to parse GraphQL response JSON:", e)
+                return None
+            included = data.get("included") or []
+            print(f"[DEBUG] Indexed {len(included)} included objects")
+            # find the included entry with matching publicIdentifier
+            experience_obj = None
+            for entry in included:
+                urn = entry.get("entityUrn", "")
+                if "EXPERIENCE" in urn:
+                    experience_obj = entry
+                    print(f"[DEBUG] Found EXPERIENCE object with urn: {urn}")
+                    break
+                
+            experiences = []
+
+            exp_cards = [inc for urn, inc in included.items() if "EXPERIENCE" in str(urn)]
+            if not exp_cards:
+                print("[WARN] No EXPERIENCE cards found in included")
+                return {"experience": []}
+
+            exp_card = exp_cards[0]  # should be only one EXPERIENCE card
+            top_components = exp_card.get("topComponents", [])
+            print(f"[DEBUG] Found {len(top_components)} topComponents in EXPERIENCE card")
+
+            # Parse experience items
+            for comp_idx, comp in enumerate(top_components):
+                fixed_list = comp.get("components", {}).get("fixedListComponent")
+                if not fixed_list:
+                    continue
+
+                for item_idx, item in enumerate(fixed_list.get("components", [])):
+                    entity = item.get("components", {}).get("entityComponent")
+                    if not entity:
+                        continue
+
+                    title = entity.get("titleV2", {}).get("text", {}).get("text")
+                    company = entity.get("subtitle", {}).get("text")
+                    location = entity.get("metadata", {}).get("text")
+                    caption = entity.get("caption", {}).get("text")
+
+                    # Logo
+                    logo_urn = None
+                    logo_attrs = entity.get("image", {}).get("attributes", [])
+                    if logo_attrs:
+                        logo_urn = logo_attrs[0].get("detailData", {}).get("*companyLogo")
+
+                    # Description
+                    description = None
+                    sub_components = entity.get("subComponents", {}).get("components", [])
+                    for sub in sub_components:
+                        fcomp = sub.get("components", {}).get("fixedListComponent")
+                        if fcomp:
+                            for subitem in fcomp.get("components", []):
+                                txt = subitem.get("components", {}).get("textComponent", {}).get("text", {}).get("text")
+                                if txt:
+                                    description = txt
+                                    break
+                        if description:
+                            break
+
+                    # Dates
+                    start_date, end_date = None, None
+                    if caption:
+                        match = re.match(r"([A-Za-z]+\s\d{4})\s-\s(Present|\w+\s\d{4})", caption)
+                        if match:
+                            start_date = match.group(1)
+                            end_date = match.group(2) if match.group(2) != "Present" else None
+
+                    experiences.append({
+                        "companyName": company,
+                        "title": title,
+                        "locationName": location,
+                        "description": description,
+                        "timePeriod": {
+                            "startDate": start_date,
+                            "endDate": end_date
+                        },
+                        "companyUrn": logo_urn,
+                    })
+
+            print(f"[DEBUG] Final experiences parsed: {len(experiences)} items")
+            return {"experience": experiences}
+
+        except Exception as e:
+            print("[ERROR] Exception while calling Voyager GraphQL endpoint:", e)
+            return None

@@ -1,7 +1,7 @@
 import random
 import base64
 from typing import Dict, List
-
+import re
 
 def get_id_from_urn(urn: str):
     """
@@ -264,3 +264,40 @@ def generate_trackingId() -> str:
     random_int_array = [random.randrange(256) for _ in range(16)]
     rand_byte_array = bytearray(random_int_array)
     return str(base64.b64encode(rand_byte_array))[2:-1]
+
+def extract_public_id(navigation_url: str) -> str:
+    # Example: "https://www.linkedin.com/in/abcdefgij?miniProfileUrn=..."
+    if not navigation_url:
+        return None
+    match = re.search(r"https:\/\/www\.linkedin\.com\/in\/([^?\/]+)", navigation_url)
+    return match.group(1) if match else None
+
+def extract_profile_picture(item):
+    profile_picture = None
+
+    # 1️⃣ Try insightsResolutionResults path
+    insights_results = item.get("insightsResolutionResults") or []
+    if isinstance(insights_results, list) and len(insights_results) > 0:
+        simple_insight = insights_results[0].get("simpleInsight") or {}
+        image = simple_insight.get("image") or {}
+        attributes = image.get("attributes") or []
+        if attributes and isinstance(attributes[0], dict):
+            detail_data = attributes[0].get("detailData") or {}
+            null_entity_pic = detail_data.get("nullntityProfilePicture") or {}
+            vector_image = null_entity_pic.get("vectorImage") or {}
+            artifacts = vector_image.get("artifacts") or []
+            if artifacts and isinstance(artifacts[0], dict):
+                profile_picture = artifacts[0].get("fileIdentifyingUrlPathSegment")
+
+    # 2️⃣ Fallback to image.attributes path if none found
+    if not profile_picture:
+        image_attrs = (item.get("image") or {}).get("attributes") or []
+        if image_attrs and isinstance(image_attrs[0], dict):
+            detail_data = image_attrs[0].get("detailData") or {}
+            non_entity_pic = detail_data.get("nonEntityProfilePicture") or {}
+            vector_image = non_entity_pic.get("vectorImage") or {}
+            artifacts = vector_image.get("artifacts") or []
+            if artifacts and isinstance(artifacts[0], dict):
+                profile_picture = artifacts[0].get("fileIdentifyingUrlPathSegment")
+
+    return profile_picture
